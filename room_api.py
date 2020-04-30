@@ -75,7 +75,7 @@ class TvCom(Resource):
             # If 'code' var was not in request OR (if 'code' var is not in our list of valid codes AND is not a slider)
             # OR (is a slider and value is not a 1 to 3 digit integer), return error
             if 'code' not in args or (args['code'] not in self.instance.inverse_table and not self.instance.is_slider) \
-                    or (self.instance.is_slider and not re.match("(^[0-9]{1,3}$)", args['code'])):
+                    or (self.instance.is_slider and not re.match("(^[0-9]{1,3}$)|(^status$)", args['code'])):
                 return "{} is not a valid code".format(args['code']), 400
 
             raw_name = self.instance.name
