@@ -1,6 +1,7 @@
 #!/usr/bin/python
 from flask import Flask
 from flask_restful import Api, Resource, reqparse
+from werkzeug.exceptions import NotFound
 from tvcom.serial_lookup import *
 import subprocess as shell
 import re
@@ -93,6 +94,10 @@ class TvCom(Resource):
         finally:
             serial.close()
 
+
+@app.errorhandler(NotFound)
+def handle_notfound(e):
+  return {'message': e.name}, 404
 
 # Define api endpoints for LED IR Remote objects
 for r in ("strip", "bulb"):
