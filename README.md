@@ -15,7 +15,7 @@ This can be achieve in debain linux variants by doing:
 sudo apt install python3.7
 ```
 ```bash
-python3 -m pip install flask flask-restful pyserial
+python3.7 -m pip install flask flask-restful pyserial
 ```
 Once the dependancies have been met the program can be run as follows:
 ```bash
