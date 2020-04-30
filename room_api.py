@@ -46,7 +46,7 @@ class LEDRemote(Resource):
 class TvComBase(Resource):
 
     def get(self):
-        return {'endpoints': ['/{}'.format(i.long_name) for i in serial_lookup]}, 200
+        return {'endpoint': ['/{}'.format(i.long_name) for i in serial_lookup]}, 200
 
 
 class TvCom(Resource):
