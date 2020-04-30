@@ -40,7 +40,7 @@ class LEDRemote(Resource):
         if shell.call(["irsend", "send_once", self.device_name, args['code']]) != 0:
             return "{} code send failed".format(args['code']), 500
 
-        return {}, 200
+        return {'message': 'Success'}, 200
 
 
 class TvComBase(Resource):
@@ -90,7 +90,7 @@ class TvCom(Resource):
             if args['code'] == "status":
                 return {'status': self.instance.get_desc(response[7:9])}, 200
 
-            return {}, 200
+            return {'message': 'Success'}, 200
         finally:
             serial.close()
 
