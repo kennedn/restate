@@ -1,0 +1,3 @@
+[submodule "tvcom"]
+	path = tvcom
+	url = ssh://git@github.com/kennedn/tvcom
