@@ -26,14 +26,14 @@ class LEDRemote(Resource):
         # Format keycodes; convert to lowercase string, split into a list and subset
         decoded_list = raw_list.decode("utf-8").lower().split()[1::2]
 
-        return {"codes": decoded_list}, 200
+        return {"code": decoded_list}, 200
 
     def put(self):
         # Ensure that a 'code' var has been passed in the request
         self.reqparse.add_argument('code', required=True, help="variable required")
         args = self.reqparse.parse_args()
         # Check that the passed code is in the list that our get method returns
-        if args['code'] not in self.get()[0]['codes']:
+        if args['code'] not in self.get()[0]['code']:
             return "{} is not a valid code".format(args['code']), 400
 
         # Check return code of our irsend command to catch failure.
@@ -64,7 +64,7 @@ class TvCom(Resource):
         if self.instance.is_slider:
             for i in range(101):
                 code_list.append("{}".format(i))
-        return {"codes": code_list}, 200
+        return {"code": code_list}, 200
 
     def put(self):
         try:
