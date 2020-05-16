@@ -1,17 +1,52 @@
-#!/usr/bin/python
+#!/usr/bin/env python
+
 from flask import Flask
 from flask_restful import Api, Resource, reqparse
 from werkzeug.exceptions import NotFound
-from tvcom.serial_lookup import *
+from serial import Serial
 import subprocess as shell
 import re
-from serial import Serial
+
+# Local imports
+import magic
+from tvcom.serial_lookup import serial_lookup
+
 
 app = Flask(__name__)
 api = Api(app)
 base_path = "/api/v1.0/"
 serial_port = '/dev/ttyAMA0'
 serial_timeout = 3
+remotes = ["strip", "bulb"]
+hosts = [["pc", "e0:3f:49:9f:a3:c8"]]
+
+
+class WakeHost(Resource):
+    def __init__(self, host, mac_address):
+        self.host = host
+        self.mac_address = mac_address
+        self.reqparse = reqparse.RequestParser()
+        self.codes = ['power', 'status']
+        # super().__init__()
+
+    def get(self):
+        return {"code": self.codes}, 200
+
+    def put(self):
+        self.reqparse.add_argument('code', required=True, help="variable required")
+        args = self.reqparse.parse_args()
+        if args['code'] not in self.codes:
+            return "{} is not a valid code".format(args['code']), 400
+
+        state = getattr(magic, args['code'])(self.host, self.mac_address)
+
+        if args['code'] == "status":
+            return {'status': state}, 200
+        elif not state:
+            return "Endpoint did not respond correctly to '{}'".format(args['code']), 500
+
+        return {'message': 'Success'}, 200
+
 
 class LEDRemote(Resource):
     def __init__(self, device_name):
@@ -97,10 +132,11 @@ class TvCom(Resource):
 
 @app.errorhandler(NotFound)
 def handle_notfound(e):
-  return {'message': e.name}, 404
+    return {'message': e.name}, 404
+
 
 # Define api endpoints for LED IR Remote objects
-for r in ("strip", "bulb"):
+for r in remotes:
     api.add_resource(LEDRemote, '{0}{1}'.format(base_path, r), endpoint=r,
                      resource_class_kwargs={'device_name': 'led_{}'.format(r)})
 
@@ -114,6 +150,9 @@ for instance in serial_lookup:
                      resource_class_kwargs={'instance': instance,
                                             'serial_port': serial_port,
                                             'serial_timeout': serial_timeout})
-
+for h in hosts:
+    api.add_resource(WakeHost, '{0}{1}'.format(base_path, h[0]), endpoint=h[0],
+                     resource_class_kwargs={'host': h[0],
+                                            'mac_address': h[1]})
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port='80', debug=True)
