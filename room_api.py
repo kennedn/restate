@@ -41,7 +41,7 @@ class WakeHost(Resource):
         state = getattr(magic, args['code'])(self.host, self.mac_address)
 
         if args['code'] == "status":
-            return {'status': state}, 200
+            return {'status': 'on' if state else 'off'}, 200
         elif not state:
             return "Endpoint did not respond correctly to '{}'".format(args['code']), 500
 

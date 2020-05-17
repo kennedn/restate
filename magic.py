@@ -21,4 +21,4 @@ def power(host, mac_address, broadcast=broadcast, port=port):
 
 
 def status(host, mac_address, count=1, timeout=0.1):
-    return ping(host, count, timeout).is_alive
+    return ping(host, count=count, timeout=timeout).is_alive
