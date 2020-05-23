@@ -13,7 +13,8 @@ Currently it allows control of the following:
 python3 (preferably 3.7 for dict insertion order preservation) needs to be installed, along with the following modules:
 - flask
 - flask-restful
-- pyserial 
+- pyserial
+- icmplib
 
 This can be achieve in debain linux variants by doing:
 
