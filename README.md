@@ -1,8 +1,14 @@
 # roomAPI
-Flask-restful API implementatation that unites disseminated automations.
+Flask-restful API implementatation that unites a varied bunch of automations.
 
-E.g Lets me control my TV and LED light bulb/strip via a restful service.
+Currently it allows control of the following:
 
+|Endpoint|Description|
+|---|---|
+|tvcom|Allows complete control of an LCD Tv via a serial port connection, [see here](https://github.com/kennedn/TvCom) for the helper script.|
+|bulb|Sends infrared codes to an IR LED bulb.|
+|strip|Sends infrared codes to an IR LED strip.|
+|pc|Sends magic packet (Wake-on-LAN) and pings to control power state of my computer, [see here](https://github.com/kennedn/Action-On-LAN) for how to turn computers off with magic packets.|
 ## How to run
 python3 (preferably 3.7 for dict insertion order preservation) needs to be installed, along with the following modules:
 - flask
