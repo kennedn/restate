@@ -5,7 +5,8 @@ Currently it allows control of the following:
 
 |Endpoint|Description|
 |---|---|
-|tvcom|Allows complete control of an LCD Tv via a serial port connection, [see here](https://github.com/kennedn/TvCom) for the helper script.|
+|alert|Forwards on notifications to the python ntfy module|
+|tvcom|Allows control of an LCD Tv via a serial port connection, [see here](https://github.com/kennedn/TvCom) for the helper script.|
 |bulb|Sends infrared codes to an IR LED bulb.|
 |strip|Sends infrared codes to an IR LED strip.|
 |pc|Sends magic packet (Wake-on-LAN) and pings to control power state of my computer, [see here](https://github.com/kennedn/Action-On-LAN) for how to turn computers off with magic packets.|
@@ -15,6 +16,7 @@ python3 (preferably 3.7 for dict insertion order preservation) needs to be insta
 - flask-restful
 - pyserial
 - icmplib
+- ntfy
 
 This can be achieve in debain linux variants by doing:
 
