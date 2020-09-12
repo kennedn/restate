@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.7
 
 from flask import Flask
 from flask_restful import Api, Resource, reqparse
@@ -6,6 +6,7 @@ from werkzeug.exceptions import NotFound
 from serial import Serial
 import subprocess as shell
 import re
+from ntfy import notify
 
 # Local imports
 import magic
@@ -20,6 +21,22 @@ serial_timeout = 3
 remotes = ["strip", "bulb"]
 hosts = [["pc", "e0:3f:49:9f:a3:c8"]]
 
+
+class SendAlert(Resource):
+    def __init__(self):
+      self.reqparse = reqparse.RequestParser()
+      self.reqparse.add_argument('message', required=True, help="variable required")
+      self.reqparse.add_argument('title')
+      self.reqparse.add_argument('priority')
+      self.reqparse.add_argument('api_token')
+    def put(self):
+        args = self.reqparse.parse_args()
+        # Assign a default value to title if nothing was recieved in request
+        args['title'] = "flask" if args['title'] is None else args['title']
+        # Filter out None's from the dict and pass the cleaned dict directly to ntfy as kwargs
+        if notify(**dict(filter(lambda a: a[1] is not None, args.items()))) != 0:
+            return "Endpoint did not respond correctly", 500
+        return {'message': 'Success'}, 200
 
 class WakeHost(Resource):
     def __init__(self, host, mac_address):
@@ -134,6 +151,8 @@ class TvCom(Resource):
 def handle_notfound(e):
     return {'message': e.name}, 404
 
+# ntfy
+api.add_resource(SendAlert, '{0}{1}'.format(base_path, "alert"), endpoint='alert')
 
 # Define api endpoints for LED IR Remote objects
 for r in remotes:
