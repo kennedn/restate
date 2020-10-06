@@ -19,7 +19,7 @@ base_path = "/api/v1.0/"
 serial_port = '/dev/ttyAMA0'
 serial_timeout = 3
 remotes = ["strip", "bulb"]
-hosts = [["pc", "e0:3f:49:9f:a3:c8"]]
+hosts = [["pc", "2c:f0:5d:56:40:43"],["shitcube", "e0:d5:5e:3c:2f:6c"]]
 
 
 class SendAlert(Resource):
