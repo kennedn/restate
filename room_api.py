@@ -10,7 +10,7 @@ from ntfy import notify
 
 # Local imports
 import magic
-from tvcom.serial_lookup import serial_lookup
+from tvcom.serial_lookup import SerialLookup
 
 
 app = Flask(__name__)
@@ -24,11 +24,12 @@ hosts = [["pc", "2c:f0:5d:56:40:43"],["shitcube", "e0:d5:5e:3c:2f:6c"]]
 
 class SendAlert(Resource):
     def __init__(self):
-      self.reqparse = reqparse.RequestParser()
-      self.reqparse.add_argument('message', required=True, help="variable required")
-      self.reqparse.add_argument('title')
-      self.reqparse.add_argument('priority')
-      self.reqparse.add_argument('api_token')
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('message', required=True, help="variable required")
+        self.reqparse.add_argument('title')
+        self.reqparse.add_argument('priority')
+        self.reqparse.add_argument('api_token')
+
     def put(self):
         args = self.reqparse.parse_args()
         # Assign a default value to title if nothing was recieved in request
@@ -37,6 +38,7 @@ class SendAlert(Resource):
         if notify(**dict(filter(lambda a: a[1] is not None, args.items()))) != 0:
             return "Endpoint did not respond correctly", 500
         return {'message': 'Success'}, 200
+
 
 class WakeHost(Resource):
     def __init__(self, host, mac_address):
@@ -98,7 +100,7 @@ class LEDRemote(Resource):
 class TvComBase(Resource):
 
     def get(self):
-        return {'endpoint': ['/{}'.format(i.long_name) for i in serial_lookup]}, 200
+        return {'endpoint': ['{}'.format(i.long_name) for i in SerialLookup.lookups]}, 200
 
 
 class TvCom(Resource):
@@ -128,7 +130,7 @@ class TvCom(Resource):
             # OR (is a slider and value is not a 1 to 3 digit integer), return error
             if 'code' not in args or (args['code'] not in self.instance.inverse_table and not self.instance.is_slider) \
                     or (self.instance.is_slider and not re.match("(^[0-9]{1,3}$)|(^status$)", args['code'])):
-                return "{} is not a valid code".format(args['code']), 400
+                return {'message': 'Invalid code'}, 400
 
             raw_name = self.instance.name
             keycode = self.instance.get_keycode(args['code'])
@@ -137,7 +139,10 @@ class TvCom(Resource):
             response = serial.read(10).decode()
 
             if len(response) != 10 or response[5:7] == "NG":
-                return "Endpoint did not respond correctly to '{}'".format(args['code']), 500
+                if len(response) == 0:
+                    return {'message': "No response"}, 500
+                else:
+                    return {'message': "Unexpected response"}, 500
 
             if args['code'] == "status":
                 return {'status': self.instance.get_desc(response[7:9])}, 200
@@ -151,6 +156,7 @@ class TvCom(Resource):
 def handle_notfound(e):
     return {'message': e.name}, 404
 
+
 # ntfy
 api.add_resource(SendAlert, '{0}{1}'.format(base_path, "alert"), endpoint='alert')
 
@@ -163,7 +169,7 @@ for r in remotes:
 api.add_resource(TvComBase, '{0}{1}'.format(base_path, "tvcom"), endpoint='tvcom')
 
 # Define api endpoints for each serial object
-for instance in serial_lookup:
+for instance in SerialLookup.lookups:
     name = instance.long_name
     api.add_resource(TvCom, '{0}{1}{2}'.format(base_path, "tvcom/", name), endpoint=name,
                      resource_class_kwargs={'instance': instance,
