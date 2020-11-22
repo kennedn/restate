@@ -36,7 +36,7 @@ class SendAlert(Resource):
         args['title'] = "flask" if args['title'] is None else args['title']
         # Filter out None's from the dict and pass the cleaned dict directly to ntfy as kwargs
         if notify(**dict(filter(lambda a: a[1] is not None, args.items()))) != 0:
-            return "Endpoint did not respond correctly", 500
+            return {'message': 'Unexpected response'}, 500
         return {'message': 'Success'}, 200
 
 
@@ -55,14 +55,14 @@ class WakeHost(Resource):
         self.reqparse.add_argument('code', required=True, help="variable required")
         args = self.reqparse.parse_args()
         if args['code'] not in self.codes:
-            return "{} is not a valid code".format(args['code']), 400
+            return {'message': 'Invalid code'}, 400
 
         state = getattr(magic, args['code'])(self.host, self.mac_address)
 
         if args['code'] == "status":
             return {'status': 'on' if state else 'off'}, 200
         elif not state:
-            return "Endpoint did not respond correctly to '{}'".format(args['code']), 500
+            return {'message': "Unexpected response"}, 500
 
         return {'message': 'Success'}, 200
 
@@ -88,11 +88,11 @@ class LEDRemote(Resource):
         args = self.reqparse.parse_args()
         # Check that the passed code is in the list that our get method returns
         if args['code'] not in self.get()[0]['code']:
-            return "{} is not a valid code".format(args['code']), 400
+            return {'message': 'Invalid code'}, 400
 
         # Check return code of our irsend command to catch failure.
         if shell.call(["irsend", "send_once", self.device_name, args['code']]) != 0:
-            return "{} code send failed".format(args['code']), 500
+            return {'message': 'Non zero return code'}, 500
 
         return {'message': 'Success'}, 200
 
@@ -152,6 +152,14 @@ class TvCom(Resource):
             serial.close()
 
 
+class Root(Resource):
+    def __init__(self, rules):
+        self.rules = rules
+
+    def get(self):
+        return {'endpoint': [r for r in self.rules]}, 200
+
+
 @app.errorhandler(NotFound)
 def handle_notfound(e):
     return {'message': e.name}, 404
@@ -179,5 +187,13 @@ for h in hosts:
     api.add_resource(WakeHost, '{0}{1}'.format(base_path, h[0]), endpoint=h[0],
                      resource_class_kwargs={'host': h[0],
                                             'mac_address': h[1]})
+
+regex = re.compile(f'^{base_path}[^/]*?$')
+rules = [i.rule for i in app.url_map.iter_rules()]
+filtered_rules = [r.split('/')[-1] for r in rules if regex.match(r)]
+api.add_resource(Root, '/api/v1.0', endpoint='',
+                 resource_class_kwargs={'rules': filtered_rules})
+api.add_resource(Root, '/api/v1.0/', endpoint='/',
+                 resource_class_kwargs={'rules': filtered_rules})
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port='80', debug=True)
