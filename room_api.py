@@ -3,7 +3,7 @@
 from flask import Flask
 from flask_restful import Api, Resource, reqparse
 from werkzeug.exceptions import NotFound
-from serial import Serial
+from serial import Serial, SerialException
 import subprocess as shell
 import re
 from ntfy import notify
@@ -148,7 +148,7 @@ class TvCom(Resource):
                 return {'status': self.instance.get_desc(response[7:9])}, 200
 
             return {'message': 'Success'}, 200
-        except serial.SerialException:
+        except SerialException:
             return {'message': "Unexpected response"}, 500
         finally:
             serial.close()
