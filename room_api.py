@@ -148,6 +148,8 @@ class TvCom(Resource):
                 return {'status': self.instance.get_desc(response[7:9])}, 200
 
             return {'message': 'Success'}, 200
+        except serial.SerialException:
+            return {'message': "Unexpected response"}, 500
         finally:
             serial.close()
 
