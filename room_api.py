@@ -16,7 +16,7 @@ from tvcom.serial_lookup import SerialLookup
 app = Flask(__name__)
 api = Api(app)
 base_path = "/api/v1.0/"
-serial_port = '/dev/ttyAMA0'
+serial_port = '/dev/ttyUSB0'
 serial_timeout = 3
 remotes = ["strip", "bulb"]
 hosts = [["pc", "2c:f0:5d:56:40:43"],["shitcube", "e0:d5:5e:3c:2f:6c"]]
@@ -173,7 +173,7 @@ api.add_resource(SendAlert, '{0}{1}'.format(base_path, "alert"), endpoint='alert
 # Define api endpoints for LED IR Remote objects
 for r in remotes:
     api.add_resource(LEDRemote, '{0}{1}'.format(base_path, r), endpoint=r,
-                     resource_class_kwargs={'device_name': 'led_{}'.format(r)})
+                     resource_class_kwargs={'device_name': r})
 
 # Define base resource that will allow a GET for serial objects
 api.add_resource(TvComBase, '{0}{1}'.format(base_path, "tvcom"), endpoint='tvcom')
