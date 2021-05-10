@@ -10,6 +10,7 @@ Currently it allows control of the following:
 |bulb|Sends infrared codes to an IR LED bulb.|
 |strip|Sends infrared codes to an IR LED strip.|
 |pc|Sends magic packet (Wake-on-LAN) and pings to control power state of my computer, [see here](https://github.com/kennedn/Action-On-LAN) for how to turn computers off with magic packets.|
+|bt<x>|Sends infrared codes over serial bluetooth to Pico IR repeaters (https://github.com/kennedn/pico-projects/tree/main/infrared_nec) to be replayed by the device|
 ## How to run
 python3 (preferably 3.7 for dict insertion order preservation) needs to be installed, along with the following modules:
 - flask
