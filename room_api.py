@@ -7,6 +7,7 @@ from serial import Serial, SerialException
 import subprocess as shell
 import re
 from ntfy import notify
+import bluetooth
 
 # Local imports
 import magic
@@ -19,7 +20,19 @@ base_path = "/api/v1.0/"
 serial_port = '/dev/ttyUSB0'
 serial_timeout = 3
 remotes = ["strip", "bulb"]
-hosts = [["pc", "2c:f0:5d:56:40:43"],["shitcube", "e0:d5:5e:3c:2f:6c"]]
+hosts = [["pc", "2c:f0:5d:56:40:43"], ["shitcube", "e0:d5:5e:3c:2f:6c"]]
+bt_hosts = [
+    {
+        "name": "bt1",
+        "devices": ["bulb", "strip"],
+        "serial": "98:D3:32:30:CA:73"
+    },
+    {
+        "name": "bt2",
+        "devices": ["bulb", "strip"],
+        "serial": "98:D3:91:FD:EF:F6"
+    }
+]
 
 
 class SendAlert(Resource):
@@ -95,6 +108,75 @@ class LEDRemote(Resource):
             return {'message': 'Non zero return code'}, 500
 
         return {'message': 'Success'}, 200
+
+
+class BluetoothRemoteBase(Resource):
+    def __init__(self, devices):
+        self.devices = devices
+
+    def get(self):
+        return {'endpoint': self.devices}, 200
+
+
+class BluetoothRemote(Resource):
+    def __init__(self, lirc_device, serial, timeout):
+        self.serial = serial
+        self.lirc_device = lirc_device
+        self.timeout = timeout
+
+        global active_btsocket  # persistant socket
+        try:
+            if active_btsocket.getpeername()[0] != self.serial:  # serial device changed
+                self._init_socket()
+        except:
+            self._init_socket()
+        self.socket = active_btsocket
+
+        # Run irsend and split to get a rough cut list list of keycodes for configured device
+        raw_list = shell.check_output(["irsend", "list", self.lirc_device, ""]).decode("utf-8").lower().split()
+        # Format the list of codes into a dict of name/hex_value
+        self.codes = dict([raw_list[i + 1], raw_list[i][-8:]]for i in range(0, len(raw_list), 2))
+
+        self.reqparse = reqparse.RequestParser()
+
+    # (Re)establish connection to a serial bluetooth module
+    def _init_socket(self):
+        global active_btsocket
+        active_btsocket.close()
+        active_btsocket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+        active_btsocket.connect((self.serial, 1))
+        active_btsocket.settimeout(self.timeout)
+
+    def get(self):
+        return {"code": list(self.codes.keys())}, 200
+
+    def put(self):
+        # Ensure that a 'code' var has been passed in the request
+        self.reqparse.add_argument('code', required=True, help="variable required")
+        args = self.reqparse.parse_args()
+        # Check that the passed code is in the list that our get method returns
+        if args['code'] not in self.codes:
+            return {'message': 'Invalid code'}, 400
+
+        try:
+            # send 8 digit hex string to device
+            self.socket.send(f"{self.codes.get(args['code'])}\r".encode())
+            # Build a 4 byte response from return data, blocking on each byte
+            response = b''
+            while len(response) < 4:
+                data = self.socket.recv(1)
+                if not data:
+                    break
+                response += data
+
+            if len(response) != 4 or response[:2] != b'OK':
+                if len(response) == 0:
+                    return {'message': "No response"}, 500
+                else:
+                    return {'message': "Unexpected response"}, 500
+            return {'message': 'Success'}, 200
+        except:
+            return {'message': "Unexpected response"}, 500
 
 
 class TvComBase(Resource):
@@ -174,6 +256,19 @@ api.add_resource(SendAlert, '{0}{1}'.format(base_path, "alert"), endpoint='alert
 for r in remotes:
     api.add_resource(LEDRemote, '{0}{1}'.format(base_path, r), endpoint=r,
                      resource_class_kwargs={'device_name': r})
+
+# Create a persistant bluetooth socket outside of class so that multiple calls
+# to the same device do not require subsiquent reconnection
+active_btsocket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+# Define api endpoints for LED IR Remote objects
+for host in bt_hosts:
+    name = host.get('name')
+    serial = host.get('serial')
+    api.add_resource(BluetoothRemoteBase, '{0}{1}'.format(base_path, name), endpoint=name,
+                     resource_class_kwargs={'devices': host.get('devices')})
+    for device in host.get('devices'):
+        api.add_resource(BluetoothRemote, '{0}{1}/{2}'.format(base_path, name, device), endpoint=f'{name}_{device}',
+                         resource_class_kwargs={'lirc_device': device, 'serial': serial, 'timeout': 3})
 
 # Define base resource that will allow a GET for serial objects
 api.add_resource(TvComBase, '{0}{1}'.format(base_path, "tvcom"), endpoint='tvcom')
