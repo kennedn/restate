@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.7
+#!/usr/bin/env python3
 
 from flask import Flask
 from flask_restful import Api, Resource, reqparse
@@ -8,6 +8,11 @@ import subprocess as shell
 import re
 from ntfy import notify
 import bluetooth
+import requests
+from time import time
+import json
+from hashlib import md5
+from string import Template
 
 # Local imports
 import magic
@@ -52,6 +57,53 @@ class SendAlert(Resource):
             return {'message': 'Unexpected response'}, 500
         return {'message': 'Success'}, 200
 
+class WiFiBulb(Resource):
+    def __init__(self, host):
+        self.reqparse = reqparse.RequestParser()
+        self.messageId = 'roomAPI'
+        self.key = 'ec4815fc145e284c827d89001edd47b5'
+        self.timestamp = str(int(time()))
+        self.sign = md5(f'{self.messageId}{self.key}{self.timestamp}'.encode()).hexdigest()
+        self.base_json = Template('{ "header": { "messageId": "${messageId}",  "method": "${method}", "namespace": "${namespace}", "payloadVersion": 1, "sign": "${sign}", "timestamp": ${timestamp} }, "payload": ${payload}}')
+        self.payloads = {}
+        self.payloads['toggle'] = ['Appliance.Control.ToggleX', Template('{"togglex":{"onoff": ${value}}}')]
+        self.payloads['luminance'] = ['Appliance.Control.Light', Template('{"light":{"capacity":4, "luminance": ${value}}}')]
+        self.payloads['temperature'] = ['Appliance.Control.Light', Template('{"light":{"capacity":2, "temperature": ${value}}}')]
+        self.payloads['rgb'] = ['Appliance.Control.Light', Template('{"light":{"capacity":1, "rgb": ${value}}}')]
+        self.host = host
+
+    def get(self):
+        return {"codes": list(self.payloads.keys())}, 200
+
+
+    def put(self):
+        self.reqparse.add_argument('code', required=True, help="variable required")
+        self.reqparse.add_argument('value', help="variable required")
+        args = self.reqparse.parse_args()
+        # Assign a default value to title if nothing was recieved in request
+        if args['code'] not in self.payloads:
+            return {'message': 'Invalid code'}, 400
+
+        value = None
+        if args['code'] == 'rgb':
+            try:
+                value = int(args['value'], 16)
+            except ValueError as e:
+                print(e)
+                return {'message': 'value not a valid hex color (#000000 -#ffffff)'}
+        else:
+            try:
+                value = max(0, min(int(args['value'], 10), 100)) # Clamp to range 0 -100
+            except ValueError:
+                return {'message': 'value not a valid integer (1-100)'}
+        payload = self.payloads[args['code']][1].substitute(value=value)
+        request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'}, 
+                                json=json.loads(self.base_json.substitute(messageId=self.messageId, method='SET', namespace=self.payloads[args['code']][0],
+                                                                          sign=self.sign, timestamp=self.timestamp, payload=payload)))
+
+        if request.status_code != 200:
+          return {'message': 'Unexpected response'}, 500
+        return {'message': 'Success'}, 200
 
 class WakeHost(Resource):
     def __init__(self, host, mac_address):
@@ -284,6 +336,9 @@ for h in hosts:
     api.add_resource(WakeHost, '{0}{1}'.format(base_path, h[0]), endpoint=h[0],
                      resource_class_kwargs={'host': h[0],
                                             'mac_address': h[1]})
+
+api.add_resource(WiFiBulb, '{0}{1}'.format(base_path, "wifibulb"), endpoint="wifibulb",
+                 resource_class_kwargs={'host': '192.168.1.148'})
 
 regex = re.compile(f'^{base_path}[^/]*?$')
 rules = [i.rule for i in app.url_map.iter_rules()]
