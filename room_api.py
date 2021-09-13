@@ -57,53 +57,93 @@ class SendAlert(Resource):
             return {'message': 'Unexpected response'}, 500
         return {'message': 'Success'}, 200
 
+
 class WiFiBulb(Resource):
     def __init__(self, host):
         self.reqparse = reqparse.RequestParser()
-        self.messageId = 'roomAPI'
-        self.key = 'ec4815fc145e284c827d89001edd47b5'
-        self.timestamp = str(int(time()))
-        self.sign = md5(f'{self.messageId}{self.key}{self.timestamp}'.encode()).hexdigest()
-        self.base_json = Template('{ "header": { "messageId": "${messageId}",  "method": "${method}", "namespace": "${namespace}", "payloadVersion": 1, "sign": "${sign}", "timestamp": ${timestamp} }, "payload": ${payload}}')
+        self.host = host
+
+        self.messageId = 'roomAPI'  # arbitrary string
+        self.key = 'ec4815fc145e284c827d89001edd47b5'  # configured by the meross app on initial bulb setup, stored against user account
+        self.timestamp = str(int(time()))  # unix epoch
+        self.sign = md5(f'{self.messageId}{self.key}{self.timestamp}'.encode()).hexdigest()  # sign is md5 of messageId+key+timestamp
+
+        self.base_json = Template('{ "header": { "messageId": "${messageId}",  "method": "${method}", \
+                                   "namespace": "${namespace}", "payloadVersion": 1, "sign": "${sign}",\
+                                   "timestamp": ${timestamp} }, "payload": ${payload}}')
         self.payloads = {}
         self.payloads['toggle'] = ['Appliance.Control.ToggleX', Template('{"togglex":{"onoff": ${value}}}')]
         self.payloads['luminance'] = ['Appliance.Control.Light', Template('{"light":{"capacity":4, "luminance": ${value}}}')]
         self.payloads['temperature'] = ['Appliance.Control.Light', Template('{"light":{"capacity":2, "temperature": ${value}}}')]
         self.payloads['rgb'] = ['Appliance.Control.Light', Template('{"light":{"capacity":1, "rgb": ${value}}}')]
-        self.host = host
+        self.payloads['status'] = ['Appliance.System.All', '{}']
 
     def get(self):
         return {"codes": list(self.payloads.keys())}, 200
-
 
     def put(self):
         self.reqparse.add_argument('code', required=True, help="variable required")
         self.reqparse.add_argument('value', help="variable required")
         args = self.reqparse.parse_args()
-        # Assign a default value to title if nothing was recieved in request
+
         if args['code'] not in self.payloads:
             return {'message': 'Invalid code'}, 400
 
         value = None
-        if args['code'] == 'rgb':
-            try:
-                value = int(args['value'], 16)
-            except ValueError as e:
-                print(e)
-                return {'message': 'value not a valid hex color (#000000 -#ffffff)'}
-        else:
-            try:
-                value = max(0, min(int(args['value'], 10), 100)) # Clamp to range 0 -100
-            except ValueError:
-                return {'message': 'value not a valid integer (1-100)'}
-        payload = self.payloads[args['code']][1].substitute(value=value)
-        request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'}, 
-                                json=json.loads(self.base_json.substitute(messageId=self.messageId, method='SET', namespace=self.payloads[args['code']][0],
-                                                                          sign=self.sign, timestamp=self.timestamp, payload=payload)))
+        if self.payloads[args['code']][0] == 'Appliance.Control.Light':
+            if args['value'] is None:  # must pass a value parameter when using Appliance.Control.Light namespace
+                return {'message': {'value': "variable required"}}, 400
 
+            if args['code'] == 'rgb':
+                try:
+                    value = int(args['value'], 16)  # convert hex color code to int - e.g ff00ff
+                except ValueError:
+                    return {'message': 'value not a valid hex color (#000000 -#ffffff)'}
+            else:
+                try:
+                    value = max(0, min(int(args['value'], 10), 100))  # Clamp to range 0 -100
+                except ValueError:
+                    return {'message': 'value not a valid integer (1-100)'}
+        else:
+            if args['value'] is None or args['code'] == 'status':
+                # Retrieve current state of bulb
+                payload = self.payloads['status'][1]
+                request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'},
+                                        json=json.loads(self.base_json.substitute(messageId=self.messageId, method='GET',
+                                                                                  namespace=self.payloads['status'][0], sign=self.sign,
+                                                                                  timestamp=self.timestamp, payload=payload)))
+                if request.status_code != 200:
+                    return {'message': 'Unexpected response'}, 500
+
+                req_json = request.json()['payload']['all']['digest']
+                if args['code'] == 'status':
+                    # Construct a stripped down json object describing the bulbs current state
+                    ret_json = {
+                        'onoff': req_json['togglex'][0]['onoff'],
+                        'rgb': f"{req_json['light']['rgb']:x}",  # convert returned decimal to hexstring e.g ff00ff
+                        'temperature': req_json['light']['temperature'],
+                        'luminance': req_json['light']['luminance']
+                        }
+                    return ret_json, 200
+                else:
+                    value = 1 - int(req_json['togglex'][0]['onoff'])  # store an inverted copy of the bulbs current onoff state
+
+            elif args['value'] == '0' or args['value'] == '1':
+                value = args['value']
+            else:
+                return {'message': 'value is not a valid integer (0-1)'}
+
+        # Substitute parsed value into payload, and then substitute the payload and other required fields into base_json before
+        # sending the constructed json on to the bulb
+        payload = self.payloads[args['code']][1].substitute(value=value)
+        request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'},
+                                json=json.loads(self.base_json.substitute(messageId=self.messageId, method='SET',
+                                                                          namespace=self.payloads[args['code']][0], sign=self.sign,
+                                                                          timestamp=self.timestamp, payload=payload)))
         if request.status_code != 200:
-          return {'message': 'Unexpected response'}, 500
+            return {'message': 'Unexpected response'}, 500
         return {'message': 'Success'}, 200
+
 
 class WakeHost(Resource):
     def __init__(self, host, mac_address):
