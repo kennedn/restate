@@ -97,8 +97,10 @@ class WiFiBulb(Resource):
             if args['code'] == 'rgb':
                 try:
                     value = int(args['value'], 16)  # convert hex color code to int - e.g ff00ff
+                    if value > 16777215 or value < 0:
+                        return {'message': 'value not a valid hex color (000000 -ffffff)'}
                 except ValueError:
-                    return {'message': 'value not a valid hex color (#000000 -#ffffff)'}
+                    return {'message': 'value not a valid hex color (000000 -ffffff)'}
             else:
                 try:
                     value = max(0, min(int(args['value'], 10), 100))  # Clamp to range 0 -100
