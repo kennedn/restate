@@ -24,7 +24,8 @@ api = Api(app)
 base_path = "/api/v1.0/"
 serial_port = '/dev/ttyUSB0'
 serial_timeout = 3
-remotes = ["strip", "bulb"]
+remotes = ["strip", "bulb", "bulb_old"]
+wifi_bulbs = [["office", "192.168.1.140"],["hall_down", "192.168.1.141"],["hall_up", "192.168.1.142"],["attic", "192.168.1.143"],["bedroom", "192.168.1.144"]]
 hosts = [["pc", "2c:f0:5d:56:40:43"], ["shitcube", "e0:d5:5e:3c:2f:6c"]]
 bt_hosts = [
     {
@@ -58,15 +59,23 @@ class SendAlert(Resource):
         return {'message': 'Success'}, 200
 
 
+class WiFiBulbBase(Resource):
+
+    def __init__(self, bulbs):
+        self.bulbs = bulbs
+
+    def get(self):
+        return {'endpoint': [b[0] for b in self.bulbs]}, 200
+
+
 class WiFiBulb(Resource):
     def __init__(self, host):
         self.reqparse = reqparse.RequestParser()
         self.host = host
 
         self.messageId = 'roomAPI'  # arbitrary string
-        self.key = 'ec4815fc145e284c827d89001edd47b5'  # configured by the meross app on initial bulb setup, stored against user account
         self.timestamp = str(int(time()))  # unix epoch
-        self.sign = md5(f'{self.messageId}{self.key}{self.timestamp}'.encode()).hexdigest()  # sign is md5 of messageId+key+timestamp
+        self.sign = md5(f'{self.messageId}{self.timestamp}'.encode()).hexdigest()  # sign is md5 of messageId+timestamp
 
         self.base_json = Template('{ "header": { "messageId": "${messageId}",  "method": "${method}", \
                                    "namespace": "${namespace}", "payloadVersion": 1, "sign": "${sign}",\
@@ -379,8 +388,11 @@ for h in hosts:
                      resource_class_kwargs={'host': h[0],
                                             'mac_address': h[1]})
 
-api.add_resource(WiFiBulb, '{0}{1}'.format(base_path, "wifibulb"), endpoint="wifibulb",
-                 resource_class_kwargs={'host': '192.168.1.148'})
+api.add_resource(WiFiBulbBase, '{0}{1}'.format(base_path, "wifi_bulb"), endpoint='wifi_bulb',
+                 resource_class_kwargs={'bulbs': wifi_bulbs})
+for b in wifi_bulbs:
+    api.add_resource(WiFiBulb, '{0}{1}{2}'.format(base_path, "wifi_bulb/", b[0]), endpoint=b[0],
+                     resource_class_kwargs={'host': b[1]})
 
 regex = re.compile(f'^{base_path}[^/]*?$')
 rules = [i.rule for i in app.url_map.iter_rules()]
