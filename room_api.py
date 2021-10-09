@@ -23,10 +23,10 @@ app = Flask(__name__)
 api = Api(app)
 base_path = "/api/v1.0/"
 serial_port = '/dev/ttyUSB0'
-serial_timeout = 3
-remotes = ["strip", "bulb", "bulb_old"]
+timeout = 3
+remotes = ["strip", "lamp", "bulb"]
 wifi_bulbs = [["office", "192.168.1.140"],["hall_down", "192.168.1.141"],["hall_up", "192.168.1.142"],["attic", "192.168.1.143"],["bedroom", "192.168.1.144"]]
-hosts = [["pc", "2c:f0:5d:56:40:43"], ["shitcube", "e0:d5:5e:3c:2f:6c"]]
+hosts = [["pc", "2c:f0:5d:56:40:42"], ["shitcube", "e0:d5:5e:3c:2f:6c"]]
 bt_hosts = [
     {
         "name": "bt1",
@@ -69,9 +69,10 @@ class WiFiBulbBase(Resource):
 
 
 class WiFiBulb(Resource):
-    def __init__(self, host):
+    def __init__(self, host, timeout):
         self.reqparse = reqparse.RequestParser()
         self.host = host
+        self.timeout = timeout
 
         self.messageId = 'roomAPI'  # arbitrary string
         self.timestamp = str(int(time()))  # unix epoch
@@ -112,17 +113,21 @@ class WiFiBulb(Resource):
                     return {'message': 'value not a valid hex color (000000 -ffffff)'}
             else:
                 try:
-                    value = max(0, min(int(args['value'], 10), 100))  # Clamp to range 0 -100
+                    value = max(-1, min(int(args['value'], 10), 100))  # Clamp to range -1 -100
                 except ValueError:
                     return {'message': 'value not a valid integer (1-100)'}
         else:
             if args['value'] is None or args['code'] == 'status':
                 # Retrieve current state of bulb
                 payload = self.payloads['status'][1]
-                request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'},
-                                        json=json.loads(self.base_json.substitute(messageId=self.messageId, method='GET',
-                                                                                  namespace=self.payloads['status'][0], sign=self.sign,
-                                                                                  timestamp=self.timestamp, payload=payload)))
+                try:
+                    request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'}, timeout=self.timeout,
+                                            json=json.loads(self.base_json.substitute(messageId=self.messageId, method='GET',
+                                                                                      namespace=self.payloads['status'][0], sign=self.sign,
+                                                                                      timestamp=self.timestamp, payload=payload)))
+                except requests.exceptions.RequestException:
+                    return {'message': 'Unexpected response'}, 500
+
                 if request.status_code != 200:
                     return {'message': 'Unexpected response'}, 500
 
@@ -147,10 +152,13 @@ class WiFiBulb(Resource):
         # Substitute parsed value into payload, and then substitute the payload and other required fields into base_json before
         # sending the constructed json on to the bulb
         payload = self.payloads[args['code']][1].substitute(value=value)
-        request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'},
-                                json=json.loads(self.base_json.substitute(messageId=self.messageId, method='SET',
-                                                                          namespace=self.payloads[args['code']][0], sign=self.sign,
-                                                                          timestamp=self.timestamp, payload=payload)))
+        try:
+            request = requests.post(f'http://{self.host}/config', headers={'Content-Type': 'application/json'}, timeout=self.timeout,
+                                    json=json.loads(self.base_json.substitute(messageId=self.messageId, method='SET',
+                                                                              namespace=self.payloads[args['code']][0], sign=self.sign,
+                                                                              timestamp=self.timestamp, payload=payload)))
+        except requests.exceptions.RequestException:
+            return {'message': 'Unexpected response'}, 500
         if request.status_code != 200:
             return {'message': 'Unexpected response'}, 500
         return {'message': 'Success'}, 200
@@ -351,7 +359,6 @@ class Root(Resource):
 def handle_notfound(e):
     return {'message': e.name}, 404
 
-
 # ntfy
 api.add_resource(SendAlert, '{0}{1}'.format(base_path, "alert"), endpoint='alert')
 
@@ -371,7 +378,7 @@ for host in bt_hosts:
                      resource_class_kwargs={'devices': host.get('devices')})
     for device in host.get('devices'):
         api.add_resource(BluetoothRemote, '{0}{1}/{2}'.format(base_path, name, device), endpoint=f'{name}_{device}',
-                         resource_class_kwargs={'lirc_device': device, 'serial': serial, 'timeout': 3})
+                         resource_class_kwargs={'lirc_device': device, 'serial': serial, 'timeout': timeout})
 
 # Define base resource that will allow a GET for serial objects
 api.add_resource(TvComBase, '{0}{1}'.format(base_path, "tvcom"), endpoint='tvcom')
@@ -382,7 +389,7 @@ for instance in SerialLookup.lookups:
     api.add_resource(TvCom, '{0}{1}{2}'.format(base_path, "tvcom/", name), endpoint=name,
                      resource_class_kwargs={'instance': instance,
                                             'serial_port': serial_port,
-                                            'serial_timeout': serial_timeout})
+                                            'serial_timeout': timeout})
 for h in hosts:
     api.add_resource(WakeHost, '{0}{1}'.format(base_path, h[0]), endpoint=h[0],
                      resource_class_kwargs={'host': h[0],
@@ -392,7 +399,7 @@ api.add_resource(WiFiBulbBase, '{0}{1}'.format(base_path, "wifi_bulb"), endpoint
                  resource_class_kwargs={'bulbs': wifi_bulbs})
 for b in wifi_bulbs:
     api.add_resource(WiFiBulb, '{0}{1}{2}'.format(base_path, "wifi_bulb/", b[0]), endpoint=b[0],
-                     resource_class_kwargs={'host': b[1]})
+                     resource_class_kwargs={'host': b[1], 'timeout': timeout})
 
 regex = re.compile(f'^{base_path}[^/]*?$')
 rules = [i.rule for i in app.url_map.iter_rules()]
