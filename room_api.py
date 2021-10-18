@@ -24,21 +24,21 @@ api = Api(app)
 base_path = "/api/v1.0/"
 serial_port = '/dev/ttyUSB0'
 timeout = 3
-remotes = ["strip", "lamp", "bulb"]
-wifi_bulbs = [["office", "192.168.1.140"],["hall_down", "192.168.1.141"],["hall_up", "192.168.1.142"],["attic", "192.168.1.143"],["bedroom", "192.168.1.144"]]
+#remotes = ["strip", "lamp", "bulb"]
+wifi_bulbs = [["office", "192.168.1.140"],["hall_down", "192.168.1.141"],["hall_up", "192.168.1.142"],["attic", "192.168.1.143"],["bedroom", "192.168.1.144"],["livingroom", "192.168.1.145"], ["livingroom_lamp", "192.168.1.146"]]
 hosts = [["pc", "2c:f0:5d:56:40:42"], ["shitcube", "e0:d5:5e:3c:2f:6c"]]
-bt_hosts = [
-    {
-        "name": "bt1",
-        "devices": ["bulb", "strip"],
-        "serial": "98:D3:32:30:CA:73"
-    },
-    {
-        "name": "bt2",
-        "devices": ["bulb", "strip"],
-        "serial": "98:D3:91:FD:EF:F6"
-    }
-]
+#bt_hosts = [
+#    {
+#        "name": "bt1",
+#        "devices": ["bulb", "strip"],
+#        "serial": "98:D3:32:30:CA:73"
+#    },
+#    {
+#        "name": "bt2",
+#        "devices": ["bulb", "strip"],
+#        "serial": "98:D3:91:FD:EF:F6"
+#    }
+#]
 
 
 class SendAlert(Resource):
@@ -363,23 +363,23 @@ def handle_notfound(e):
 api.add_resource(SendAlert, '{0}{1}'.format(base_path, "alert"), endpoint='alert')
 
 # Define api endpoints for LED IR Remote objects
-for r in remotes:
-    api.add_resource(LEDRemote, '{0}{1}'.format(base_path, r), endpoint=r,
-                     resource_class_kwargs={'device_name': r})
-
-# Create a persistant bluetooth socket outside of class so that multiple calls
-# to the same device do not require subsiquent reconnection
-active_btsocket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-# Define api endpoints for LED IR Remote objects
-for host in bt_hosts:
-    name = host.get('name')
-    serial = host.get('serial')
-    api.add_resource(BluetoothRemoteBase, '{0}{1}'.format(base_path, name), endpoint=name,
-                     resource_class_kwargs={'devices': host.get('devices')})
-    for device in host.get('devices'):
-        api.add_resource(BluetoothRemote, '{0}{1}/{2}'.format(base_path, name, device), endpoint=f'{name}_{device}',
-                         resource_class_kwargs={'lirc_device': device, 'serial': serial, 'timeout': timeout})
-
+#for r in remotes:
+#    api.add_resource(LEDRemote, '{0}{1}'.format(base_path, r), endpoint=r,
+#                     resource_class_kwargs={'device_name': r})
+#
+## Create a persistant bluetooth socket outside of class so that multiple calls
+## to the same device do not require subsiquent reconnection
+#active_btsocket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+## Define api endpoints for LED IR Remote objects
+#for host in bt_hosts:
+#    name = host.get('name')
+#    serial = host.get('serial')
+#    api.add_resource(BluetoothRemoteBase, '{0}{1}'.format(base_path, name), endpoint=name,
+#                     resource_class_kwargs={'devices': host.get('devices')})
+#    for device in host.get('devices'):
+#        api.add_resource(BluetoothRemote, '{0}{1}/{2}'.format(base_path, name, device), endpoint=f'{name}_{device}',
+#                         resource_class_kwargs={'lirc_device': device, 'serial': serial, 'timeout': timeout})
+#
 # Define base resource that will allow a GET for serial objects
 api.add_resource(TvComBase, '{0}{1}'.format(base_path, "tvcom"), endpoint='tvcom')
 
