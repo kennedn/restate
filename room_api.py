@@ -91,7 +91,7 @@ class SendAlert(Resource):
 class MerossDeviceBase(Resource):
 
     def __init__(self, devices):
-        self.devices = devices
+        self.devices = list(devices)
 
     def get(self):
         return {'endpoint': self.devices}, 200
