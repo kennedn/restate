@@ -10,14 +10,19 @@ from ntfy import notify
 import bluetooth
 import requests
 from uuid import uuid4
-from time import time
 import json
 from hashlib import md5
 from string import Template
+from enum import Enum
 
 # Local imports
 import magic
 from tvcom.serial_lookup import SerialLookup
+
+
+class MerossDeviceType(Enum):
+    BULB = 0
+    SOCKET = 1
 
 
 app = Flask(__name__)
@@ -25,21 +30,44 @@ api = Api(app)
 base_path = "/api/v1.0/"
 serial_port = '/dev/ttyUSB0'
 timeout = 5
-#remotes = ["strip", "lamp", "bulb"]
-wifi_bulbs = [["office", "192.168.1.140"],["hall_down", "192.168.1.141"],["hall_up", "192.168.1.142"],["attic", "192.168.1.143"],["bedroom", "192.168.1.144"],["livingroom", "192.168.1.145"], ["livingroom_lamp", "192.168.1.146"]]
-hosts = [["pc", "2c:f0:5d:56:40:42"], ["shitcube", "e0:d5:5e:3c:2f:6c"]]
-#bt_hosts = [
-#    {
-#        "name": "bt1",
-#        "devices": ["bulb", "strip"],
-#        "serial": "98:D3:32:30:CA:73"
-#    },
-#    {
-#        "name": "bt2",
-#        "devices": ["bulb", "strip"],
-#        "serial": "98:D3:91:FD:EF:F6"
-#    }
-#]
+meross_devices = {
+    "office": {
+        'hostname': "192.168.1.140",
+        'device_type': MerossDeviceType.BULB
+    },
+    "hall_down": {
+        "hostname": "192.168.1.141",
+        "device_type": MerossDeviceType.BULB
+    },
+    "hall_up": {
+        "hostname": "192.168.1.142",
+        "device_type": MerossDeviceType.BULB
+    },
+    "attic": {
+        "hostname": "192.168.1.143",
+        "device_type": MerossDeviceType.BULB
+    },
+    "bedroom": {
+        "hostname": "192.168.1.144",
+        "device_type": MerossDeviceType.BULB
+    },
+    "livingroom": {
+        "hostname": "192.168.1.145",
+        "device_type": MerossDeviceType.BULB
+    },
+    "livingroom_lamp": {
+        "hostname": "192.168.1.146",
+        "device_type": MerossDeviceType.BULB
+    },
+    "tree": {
+        "hostname": "192.168.1.150",
+        "device_type": MerossDeviceType.SOCKET
+    }
+}
+magic_hosts = {
+    "pc": "2c:f0:5d:56:40:42",
+    "shitcube": "e0:d5:5e:3c:2f:6c"
+}
 
 
 class SendAlert(Resource):
@@ -60,23 +88,23 @@ class SendAlert(Resource):
         return {'message': 'Success'}, 200
 
 
-class WiFiBulbBase(Resource):
+class MerossDeviceBase(Resource):
 
-    def __init__(self, bulbs):
-        self.bulbs = bulbs
+    def __init__(self, devices):
+        self.devices = devices
 
     def get(self):
-        return {'endpoint': [b[0] for b in self.bulbs]}, 200
+        return {'endpoint': self.devices}, 200
 
 
-class WiFiBulb(Resource):
-    def __init__(self, host, timeout):
+class MerossDevice(Resource):
+    def __init__(self, host, device_type, timeout):
         self.reqparse = reqparse.RequestParser()
         self.host = host
         self.timeout = timeout
+        self.device_type = device_type
 
         self.messageId = str(uuid4())  # arbitrary string
-        #self.timestamp = str(int(time()))  # unix epoch
         self.timestamp = 0
 
         self.sign = md5(f'{self.messageId}{self.timestamp}'.encode()).hexdigest()  # sign is md5 of messageId+timestamp
@@ -84,12 +112,15 @@ class WiFiBulb(Resource):
         self.base_json = Template('{ "header": { "messageId": "${messageId}",  "method": "${method}", \
                                    "namespace": "${namespace}", "payloadVersion": 1, "sign": "${sign}",\
                                    "timestamp": ${timestamp} }, "payload": ${payload}}')
+
         self.payloads = {}
-        self.payloads['toggle'] = ['Appliance.Control.ToggleX', Template('{"togglex":{"onoff": ${value}}}')]
-        self.payloads['luminance'] = ['Appliance.Control.Light', Template('{"light":{"capacity":4, "luminance": ${value}}}')]
-        self.payloads['temperature'] = ['Appliance.Control.Light', Template('{"light":{"capacity":2, "temperature": ${value}}}')]
-        self.payloads['rgb'] = ['Appliance.Control.Light', Template('{"light":{"capacity":1, "rgb": ${value}}}')]
-        self.payloads['status'] = ['Appliance.System.All', '{}']
+        if device_type is MerossDeviceType.BULB or device_type is MerossDeviceType.SOCKET:
+            self.payloads['toggle'] = ['Appliance.Control.ToggleX', Template('{"togglex":{"onoff": ${value}}}')]
+            self.payloads['status'] = ['Appliance.System.All', '{}']
+        if device_type is MerossDeviceType.BULB:
+            self.payloads['luminance'] = ['Appliance.Control.Light', Template('{"light":{"capacity":4, "luminance": ${value}}}')]
+            self.payloads['temperature'] = ['Appliance.Control.Light', Template('{"light":{"capacity":2, "temperature": ${value}}}')]
+            self.payloads['rgb'] = ['Appliance.Control.Light', Template('{"light":{"capacity":1, "rgb": ${value}}}')]
 
     def get(self):
         return {"codes": list(self.payloads.keys())}, 200
@@ -138,11 +169,17 @@ class WiFiBulb(Resource):
                 req_json = request.json()['payload']['all']['digest']
                 if args['code'] == 'status':
                     # Construct a stripped down json object describing the bulbs current state
-                    ret_json = {
-                        'onoff': req_json['togglex'][0]['onoff'],
-                        'rgb': f"{req_json['light']['rgb']:x}",  # convert returned decimal to hexstring e.g ff00ff
-                        'temperature': req_json['light']['temperature'],
-                        'luminance': req_json['light']['luminance']
+                    ret_json = {}
+                    if self.device_type is MerossDeviceType.BULB:
+                        ret_json = {
+                            'onoff': req_json['togglex'][0]['onoff'],
+                            'rgb': f"{req_json['light']['rgb']:x}",  # convert returned decimal to hexstring e.g ff00ff
+                            'temperature': req_json['light']['temperature'],
+                            'luminance': req_json['light']['luminance']
+                            }
+                    elif self.device_type is MerossDeviceType.SOCKET:
+                        ret_json = {
+                            'onoff': req_json['togglex'][0]['onoff'],
                         }
                     return ret_json, 200
                 else:
@@ -348,7 +385,6 @@ class TvCom(Resource):
                 elif args['code'][0] == '+':
                     args['code'] = self.instance.get_desc(response[7:9]) + int(args['code'][1::])
 
-
             raw_name = self.instance.name
             keycode = self.instance.get_keycode(args['code'])
 
@@ -383,27 +419,10 @@ class Root(Resource):
 def handle_notfound(e):
     return {'message': e.name}, 404
 
+
 # ntfy
 api.add_resource(SendAlert, '{0}{1}'.format(base_path, "alert"), endpoint='alert')
 
-# Define api endpoints for LED IR Remote objects
-#for r in remotes:
-#    api.add_resource(LEDRemote, '{0}{1}'.format(base_path, r), endpoint=r,
-#                     resource_class_kwargs={'device_name': r})
-#
-## Create a persistant bluetooth socket outside of class so that multiple calls
-## to the same device do not require subsiquent reconnection
-#active_btsocket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-## Define api endpoints for LED IR Remote objects
-#for host in bt_hosts:
-#    name = host.get('name')
-#    serial = host.get('serial')
-#    api.add_resource(BluetoothRemoteBase, '{0}{1}'.format(base_path, name), endpoint=name,
-#                     resource_class_kwargs={'devices': host.get('devices')})
-#    for device in host.get('devices'):
-#        api.add_resource(BluetoothRemote, '{0}{1}/{2}'.format(base_path, name, device), endpoint=f'{name}_{device}',
-#                         resource_class_kwargs={'lirc_device': device, 'serial': serial, 'timeout': timeout})
-#
 # Define base resource that will allow a GET for serial objects
 api.add_resource(TvComBase, '{0}{1}'.format(base_path, "tvcom"), endpoint='tvcom')
 
@@ -414,16 +433,17 @@ for instance in SerialLookup.lookups:
                      resource_class_kwargs={'instance': instance,
                                             'serial_port': serial_port,
                                             'serial_timeout': timeout})
-for h in hosts:
-    api.add_resource(WakeHost, '{0}{1}'.format(base_path, h[0]), endpoint=h[0],
-                     resource_class_kwargs={'host': h[0],
-                                            'mac_address': h[1]})
+for name, mac_address in magic_hosts.items():
+    api.add_resource(WakeHost, '{0}{1}'.format(base_path, name), endpoint=name,
+                     resource_class_kwargs={'host': name,
+                                            'mac_address': mac_address})
 
-api.add_resource(WiFiBulbBase, '{0}{1}'.format(base_path, "wifi_bulb"), endpoint='wifi_bulb',
-                 resource_class_kwargs={'bulbs': wifi_bulbs})
-for b in wifi_bulbs:
-    api.add_resource(WiFiBulb, '{0}{1}{2}'.format(base_path, "wifi_bulb/", b[0]), endpoint=b[0],
-                     resource_class_kwargs={'host': b[1], 'timeout': 1.5})
+api.add_resource(MerossDeviceBase, '{0}{1}'.format(base_path, "meross"), endpoint='meross',
+                 resource_class_kwargs={'devices': meross_devices.keys()})
+for name, settings in meross_devices.items():
+    api.add_resource(MerossDevice, '{0}{1}{2}'.format(base_path, "meross/", name), endpoint=name,
+                     resource_class_kwargs={'host': settings.get('hostname'),
+                     'device_type': settings.get('device_type'), 'timeout': 1.5})
 
 regex = re.compile(f'^{base_path}[^/]*?$')
 rules = [i.rule for i in app.url_map.iter_rules()]
