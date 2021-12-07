@@ -127,7 +127,7 @@ class MerossDevice(Resource):
 
     def put(self):
         self.reqparse.add_argument('code', required=True, help="variable required")
-        self.reqparse.add_argument('value', help="variable required")
+        self.reqparse.add_argument('value')
         args = self.reqparse.parse_args()
 
         if args['code'] not in self.payloads:
@@ -141,7 +141,7 @@ class MerossDevice(Resource):
             if args['code'] == 'rgb':
                 try:
                     value = int(args['value'], 16)  # convert hex color code to int - e.g ff00ff
-                    if value > 16777215 or value < 0:
+                    if value > 0xffffff or value < 0x000000:
                         return {'message': 'value not a valid hex color (000000 -ffffff)'}
                 except ValueError:
                     return {'message': 'value not a valid hex color (000000 -ffffff)'}
@@ -170,17 +170,12 @@ class MerossDevice(Resource):
                 if args['code'] == 'status':
                     # Construct a stripped down json object describing the bulbs current state
                     ret_json = {}
+                    if self.device_type is MerossDeviceType.BULB or self.device_type is MerossDeviceType.SOCKET:
+                        ret_json['onoff'] = req_json['togglex'][0]['onoff']
                     if self.device_type is MerossDeviceType.BULB:
-                        ret_json = {
-                            'onoff': req_json['togglex'][0]['onoff'],
-                            'rgb': f"{req_json['light']['rgb']:x}",  # convert returned decimal to hexstring e.g ff00ff
-                            'temperature': req_json['light']['temperature'],
-                            'luminance': req_json['light']['luminance']
-                            }
-                    elif self.device_type is MerossDeviceType.SOCKET:
-                        ret_json = {
-                            'onoff': req_json['togglex'][0]['onoff'],
-                        }
+                        ret_json['rgb'] = f"{req_json['light']['rgb']:x}"  # convert returned decimal to hexstring e.g ff00ff
+                        ret_json['temperature'] = req_json['light']['temperature']
+                        ret_json['luminance'] = req_json['light']['luminance']
                     return ret_json, 200
                 else:
                     value = 1 - int(req_json['togglex'][0]['onoff'])  # store an inverted copy of the bulbs current onoff state
@@ -199,7 +194,6 @@ class MerossDevice(Resource):
                                                                               namespace=self.payloads[args['code']][0], sign=self.sign,
                                                                               timestamp=self.timestamp, payload=payload)))
         except requests.exceptions.RequestException as e:
-            print(e)
             return {'message': 'Unexpected response'}, 500
         if request.status_code != 200:
             return {'message': 'Unexpected response'}, 500
@@ -453,4 +447,6 @@ api.add_resource(Root, '/api/v1.0', endpoint='',
 api.add_resource(Root, '/api/v1.0/', endpoint='/',
                  resource_class_kwargs={'rules': filtered_rules})
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port='80', debug=True)
+    from waitress import serve
+    from paste.translogger import TransLogger
+    serve(TransLogger(app, setup_console_handler=False), host='0.0.0.0', port=80)
