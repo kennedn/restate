@@ -9,6 +9,7 @@ import re
 from ntfy import notify
 import bluetooth
 import requests
+from uuid import uuid4
 from time import time
 import json
 from hashlib import md5
@@ -23,7 +24,7 @@ app = Flask(__name__)
 api = Api(app)
 base_path = "/api/v1.0/"
 serial_port = '/dev/ttyUSB0'
-timeout = 3
+timeout = 5
 #remotes = ["strip", "lamp", "bulb"]
 wifi_bulbs = [["office", "192.168.1.140"],["hall_down", "192.168.1.141"],["hall_up", "192.168.1.142"],["attic", "192.168.1.143"],["bedroom", "192.168.1.144"],["livingroom", "192.168.1.145"], ["livingroom_lamp", "192.168.1.146"]]
 hosts = [["pc", "2c:f0:5d:56:40:42"], ["shitcube", "e0:d5:5e:3c:2f:6c"]]
@@ -74,8 +75,10 @@ class WiFiBulb(Resource):
         self.host = host
         self.timeout = timeout
 
-        self.messageId = 'roomAPI'  # arbitrary string
-        self.timestamp = str(int(time()))  # unix epoch
+        self.messageId = str(uuid4())  # arbitrary string
+        #self.timestamp = str(int(time()))  # unix epoch
+        self.timestamp = 0
+
         self.sign = md5(f'{self.messageId}{self.timestamp}'.encode()).hexdigest()  # sign is md5 of messageId+timestamp
 
         self.base_json = Template('{ "header": { "messageId": "${messageId}",  "method": "${method}", \
@@ -125,7 +128,8 @@ class WiFiBulb(Resource):
                                             json=json.loads(self.base_json.substitute(messageId=self.messageId, method='GET',
                                                                                       namespace=self.payloads['status'][0], sign=self.sign,
                                                                                       timestamp=self.timestamp, payload=payload)))
-                except requests.exceptions.RequestException:
+                except requests.exceptions.RequestException as e:
+                    print(e)
                     return {'message': 'Unexpected response'}, 500
 
                 if request.status_code != 200:
@@ -157,7 +161,8 @@ class WiFiBulb(Resource):
                                     json=json.loads(self.base_json.substitute(messageId=self.messageId, method='SET',
                                                                               namespace=self.payloads[args['code']][0], sign=self.sign,
                                                                               timestamp=self.timestamp, payload=payload)))
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            print(e)
             return {'message': 'Unexpected response'}, 500
         if request.status_code != 200:
             return {'message': 'Unexpected response'}, 500
@@ -322,8 +327,27 @@ class TvCom(Resource):
             # If 'code' var was not in request OR (if 'code' var is not in our list of valid codes AND is not a slider)
             # OR (is a slider and value is not a 1 to 3 digit integer), return error
             if 'code' not in args or (args['code'] not in self.instance.inverse_table and not self.instance.is_slider) \
-                    or (self.instance.is_slider and not re.match("(^[0-9]{1,3}$)|(^status$)", args['code'])):
+                    or (self.instance.is_slider and not re.match("(^[\+-]?[0-9]{1,3}$)|(^status$)", args['code'])):
                 return {'message': 'Invalid code'}, 400
+
+            if self.instance.is_slider and re.match("^[\+-][0-9]{1,3}$", args['code']):
+                raw_name = self.instance.name
+                keycode = self.instance.get_keycode('status')
+
+                serial.write("{0} 00 {1}\r".format(raw_name, keycode).encode())
+                response = serial.read(10).decode()
+
+                if len(response) != 10 or response[5:7] == "NG":
+                    if len(response) == 0:
+                        return {'message': "No response"}, 500
+                    else:
+                        return {'message': "Unexpected response"}, 500
+
+                if args['code'][0] == '-':
+                    args['code'] = self.instance.get_desc(response[7:9]) - int(args['code'][1::])
+                elif args['code'][0] == '+':
+                    args['code'] = self.instance.get_desc(response[7:9]) + int(args['code'][1::])
+
 
             raw_name = self.instance.name
             keycode = self.instance.get_keycode(args['code'])
@@ -399,7 +423,7 @@ api.add_resource(WiFiBulbBase, '{0}{1}'.format(base_path, "wifi_bulb"), endpoint
                  resource_class_kwargs={'bulbs': wifi_bulbs})
 for b in wifi_bulbs:
     api.add_resource(WiFiBulb, '{0}{1}{2}'.format(base_path, "wifi_bulb/", b[0]), endpoint=b[0],
-                     resource_class_kwargs={'host': b[1], 'timeout': timeout})
+                     resource_class_kwargs={'host': b[1], 'timeout': 1.5})
 
 regex = re.compile(f'^{base_path}[^/]*?$')
 rules = [i.rule for i in app.url_map.iter_rules()]
