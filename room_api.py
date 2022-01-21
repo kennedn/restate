@@ -9,6 +9,8 @@ import re
 from ntfy import notify
 import bluetooth
 import requests
+import httpx
+import asyncio
 from uuid import uuid4
 import json
 from hashlib import md5
@@ -59,7 +61,7 @@ meross_devices = {
         "hostname": "192.168.1.146",
         "device_type": MerossDeviceType.BULB
     },
-    "tree": {
+    "plant": {
         "hostname": "192.168.1.150",
         "device_type": MerossDeviceType.SOCKET
     }
@@ -88,13 +90,43 @@ class SendAlert(Resource):
         return {'message': 'Success'}, 200
 
 
+async def meross_put(hosts, json, timeout):
+    async with httpx.AsyncClient() as client:
+        tasks = (client.put(f'http://localhost/api/v1.0/meross/{host}', headers={'Content-Type': 'application/json'}, timeout=timeout, json=json) for host in hosts)
+        return {req.url.path.split('/')[-1]: req.json() for req in await asyncio.gather(*tasks)}
+            
+
 class MerossDeviceBase(Resource):
 
-    def __init__(self, devices):
+    def __init__(self, devices, timeout):
+        self.timeout = timeout
         self.devices = list(devices)
+        self.reqparse = reqparse.RequestParser()
 
     def get(self):
         return {'endpoint': self.devices}, 200
+
+    def put(self):
+        self.reqparse.add_argument('hosts', required=True, help="variable required")
+        self.reqparse.add_argument('code', required=True, help="variable required")
+        self.reqparse.add_argument('value')
+        args = self.reqparse.parse_args()
+        json = {}
+        if args['value']:
+            json = {'code': args['code'], 'value': args['value']}
+        else:
+            json = {'code': args['code']}
+
+        hosts = args['hosts'].split(',')
+        for host in hosts:
+            if host not in self.devices:
+                return {'message': 'Invalid hosts'}, 400
+        try:
+            return asyncio.run(meross_put(hosts, json, self.timeout)), 200
+        except e:
+            return e, 500
+        
+
 
 
 class MerossDevice(Resource):
@@ -160,7 +192,6 @@ class MerossDevice(Resource):
                                                                                       namespace=self.payloads['status'][0], sign=self.sign,
                                                                                       timestamp=self.timestamp, payload=payload)))
                 except requests.exceptions.RequestException as e:
-                    print(e)
                     return {'message': 'Unexpected response'}, 500
 
                 if request.status_code != 200:
@@ -349,6 +380,15 @@ class TvCom(Resource):
                 code_list.append("{}".format(i))
         return {"code": code_list}, 200
 
+    def serial_comm(self, serial, key_code):
+        serial.write(f"{self.instance.name} 00 {self.instance.get_keycode(key_code)}\r".encode())
+        response = serial.read(10).decode()
+        success = True if response[5:7] == "OK" else False
+        payload = self.instance.get_desc(response[7:9])
+        print(success, payload)
+        return success, payload 
+
+
     def put(self):
         try:
             serial = Serial(self.port, timeout=self.timeout)
@@ -362,39 +402,22 @@ class TvCom(Resource):
                 return {'message': 'Invalid code'}, 400
 
             if self.instance.is_slider and re.match("^[\+-][0-9]{1,3}$", args['code']):
-                raw_name = self.instance.name
-                keycode = self.instance.get_keycode('status')
+                success, payload = self.serial_comm(serial, 'status')
 
-                serial.write("{0} 00 {1}\r".format(raw_name, keycode).encode())
-                response = serial.read(10).decode()
-
-                if len(response) != 10 or response[5:7] == "NG":
-                    if len(response) == 0:
-                        return {'message': "No response"}, 500
-                    else:
-                        return {'message': "Unexpected response"}, 500
-
-                if args['code'][0] == '-':
-                    args['code'] = self.instance.get_desc(response[7:9]) - int(args['code'][1::])
-                elif args['code'][0] == '+':
-                    args['code'] = self.instance.get_desc(response[7:9]) + int(args['code'][1::])
-
-            raw_name = self.instance.name
-            keycode = self.instance.get_keycode(args['code'])
-
-            serial.write("{0} 00 {1}\r".format(raw_name, keycode).encode())
-            response = serial.read(10).decode()
-
-            if len(response) != 10 or response[5:7] == "NG":
-                if len(response) == 0:
-                    return {'message': "No response"}, 500
-                else:
+                if not success:
                     return {'message': "Unexpected response"}, 500
 
-            if args['code'] == "status":
-                return {'status': self.instance.get_desc(response[7:9])}, 200
+                args['code'] = payload + int(args['code'])
 
+            success, payload = self.serial_comm(serial, args['code'])
+
+            if not success:
+                return {'message': "Unexpected response"}, 500
+
+            if args['code'] == "status":
+                return {'status': payload}, 200
             return {'message': 'Success'}, 200
+
         except SerialException:
             return {'message': "Unexpected response"}, 500
         finally:
@@ -433,7 +456,7 @@ for name, mac_address in magic_hosts.items():
                                             'mac_address': mac_address})
 
 api.add_resource(MerossDeviceBase, '{0}{1}'.format(base_path, "meross"), endpoint='meross',
-                 resource_class_kwargs={'devices': meross_devices.keys()})
+        resource_class_kwargs={'devices': meross_devices.keys(), 'timeout': timeout})
 for name, settings in meross_devices.items():
     api.add_resource(MerossDevice, '{0}{1}{2}'.format(base_path, "meross/", name), endpoint=name,
                      resource_class_kwargs={'host': settings.get('hostname'),
@@ -449,4 +472,5 @@ api.add_resource(Root, '/api/v1.0/', endpoint='/',
 if __name__ == '__main__':
     from waitress import serve
     from paste.translogger import TransLogger
-    serve(TransLogger(app, setup_console_handler=False), host='0.0.0.0', port=80)
+    serve(TransLogger(app, setup_console_handler=False), host='0.0.0.0', port=80)#, threads=1)
+    #app.run(host='0.0.0.0', port='80', debug=True)
