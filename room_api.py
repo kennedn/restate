@@ -46,7 +46,7 @@ meross_devices = {
         "device_type": MerossDeviceType.BULB
     },
     "attic": {
-        "hostname": "192.168.1.143",
+        "hostname": "192.168.1.148",
         "device_type": MerossDeviceType.BULB
     },
     "bedroom": {
@@ -61,13 +61,25 @@ meross_devices = {
         "hostname": "192.168.1.146",
         "device_type": MerossDeviceType.BULB
     },
+    "kitchen": {
+        "hostname": "192.168.1.147",
+        "device_type": MerossDeviceType.BULB
+    },
+    "kitchen_2": {
+        "hostname": "192.168.1.143",
+        "device_type": MerossDeviceType.BULB
+    },
     "plant": {
         "hostname": "192.168.1.150",
+        "device_type": MerossDeviceType.SOCKET
+    },
+    "kitchen_socket": {
+        "hostname": "192.168.1.151",
         "device_type": MerossDeviceType.SOCKET
     }
 }
 magic_hosts = {
-    "pc": "2c:f0:5d:56:40:42",
+        "pc": "2c:f0:5d:56:40:43",
     "shitcube": "e0:d5:5e:3c:2f:6c"
 }
 
@@ -90,7 +102,7 @@ class SendAlert(Resource):
         return {'message': 'Success'}, 200
 
 
-async def meross_put(hosts, json, timeout):
+async def meross_multi_put(hosts, json, timeout):
     async with httpx.AsyncClient() as client:
         tasks = (client.put(f'http://localhost/api/v1.0/meross/{host}', headers={'Content-Type': 'application/json'}, timeout=timeout, json=json) for host in hosts)
         return {req.url.path.split('/')[-1]: req.json() for req in await asyncio.gather(*tasks)}
@@ -111,22 +123,17 @@ class MerossDeviceBase(Resource):
         self.reqparse.add_argument('code', required=True, help="variable required")
         self.reqparse.add_argument('value')
         args = self.reqparse.parse_args()
-        json = {}
-        if args['value']:
-            json = {'code': args['code'], 'value': args['value']}
-        else:
-            json = {'code': args['code']}
+        json = {'code': args['code'], 'value': args['value']} if args['value'] else {'code': args['code']}
 
         hosts = args['hosts'].split(',')
-        for host in hosts:
-            if host not in self.devices:
-                return {'message': 'Invalid hosts'}, 400
+        if not all(host in self.devices for host in hosts):
+            return {'message': 'Invalid hosts'}, 400
+
         try:
-            return asyncio.run(meross_put(hosts, json, self.timeout)), 200
+            return asyncio.run(meross_multi_put(hosts, json, self.timeout)), 200
         except e:
             return e, 500
         
-
 
 
 class MerossDevice(Resource):
@@ -423,6 +430,45 @@ class TvCom(Resource):
         finally:
             serial.close()
 
+class Snowdon(Resource):
+
+    def __init__(self, host, port, timeout):
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.reqparse = reqparse.RequestParser()
+        self.codes = None
+    def get(self):
+        try:
+            request = requests.get(f'http://{self.host}:{self.port}/', timeout=self.timeout)
+        except requests.exceptions.RequestException as e:
+            return {'message': 'Unexpected response'}, 500
+
+        if request.status_code != 200:
+            return {'message': 'Unexpected response'}, 500
+
+        req_json = request.json()
+        self.codes = req_json['code']
+        return req_json, 200
+
+    def put(self):
+        self.reqparse.add_argument('code', required=True, help="variable required")
+        args = self.reqparse.parse_args()
+
+        if self.codes is None:
+            self.get()
+
+        if 'code' not in args or args['code'] not in self.codes:
+            return {'message': 'Invalid code'}, 400
+        try:
+            request = requests.put(f'http://{self.host}:{self.port}/?code={args["code"]}', timeout=self.timeout)
+        except requests.exceptions.RequestException as e:
+            return {'message': 'Unexpected response'}, 500
+
+        if request.status_code != 200:
+            return {'message': 'Unexpected response'}, 500
+
+        return request.json(), 200
 
 class Root(Resource):
     def __init__(self, rules):
@@ -462,6 +508,9 @@ for name, settings in meross_devices.items():
                      resource_class_kwargs={'host': settings.get('hostname'),
                      'device_type': settings.get('device_type'), 'timeout': 1.5})
 
+api.add_resource(Snowdon, '{0}{1}'.format(base_path, "snowdon"), endpoint='snowdon',
+        resource_class_kwargs={'host': '192.168.1.160', 'port': 8080, 'timeout': 10})
+
 regex = re.compile(f'^{base_path}[^/]*?$')
 rules = [i.rule for i in app.url_map.iter_rules()]
 filtered_rules = [r.split('/')[-1] for r in rules if regex.match(r)]
@@ -472,5 +521,5 @@ api.add_resource(Root, '/api/v1.0/', endpoint='/',
 if __name__ == '__main__':
     from waitress import serve
     from paste.translogger import TransLogger
-    serve(TransLogger(app, setup_console_handler=False), host='0.0.0.0', port=80)#, threads=1)
+    serve(TransLogger(app, setup_console_handler=False), host='0.0.0.0', port=80, threads=10)#, threads=1)
     #app.run(host='0.0.0.0', port='80', debug=True)
