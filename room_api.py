@@ -76,6 +76,10 @@ meross_devices = {
     "kitchen_socket": {
         "hostname": "192.168.1.151",
         "device_type": MerossDeviceType.SOCKET
+    },
+    "test_socket": {
+        "hostname": "192.168.1.159",
+        "device_type": MerossDeviceType.SOCKET
     }
 }
 magic_hosts = {
@@ -437,36 +441,24 @@ class Snowdon(Resource):
         self.port = port
         self.timeout = timeout
         self.reqparse = reqparse.RequestParser()
-        self.codes = None
+        self.codes = ["status", "power", "mute", "volume_up", "volume_down", "previous", "next", "play_pause", "input", "treble_up", "treble_down", "bass_up", "bass_down", "pair", "flat", "music", "dialog", "movie"]
+
     def get(self):
-        try:
-            request = requests.get(f'http://{self.host}:{self.port}/', timeout=self.timeout)
-        except requests.exceptions.RequestException as e:
-            return {'message': 'Unexpected response'}, 500
-
-        if request.status_code != 200:
-            return {'message': 'Unexpected response'}, 500
-
-        req_json = request.json()
-        self.codes = req_json['code']
-        return req_json, 200
+        return self.codes, 200
 
     def put(self):
         self.reqparse.add_argument('code', required=True, help="variable required")
         args = self.reqparse.parse_args()
 
-        if self.codes is None:
-            self.get()
-
         if 'code' not in args or args['code'] not in self.codes:
-            return {'message': 'Invalid code'}, 400
+            return {'status': 'Invalid code'}, 400
         try:
             request = requests.put(f'http://{self.host}:{self.port}/?code={args["code"]}', timeout=self.timeout)
         except requests.exceptions.RequestException as e:
-            return {'message': 'Unexpected response'}, 500
+            return {'status': 'Unexpected response'}, 500
 
         if request.status_code != 200:
-            return {'message': 'Unexpected response'}, 500
+            return {'status': 'Unexpected response'}, 500
 
         return request.json(), 200
 
