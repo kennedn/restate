@@ -376,11 +376,41 @@ class TvComBase(Resource):
 
 class TvCom(Resource):
 
-    def __init__(self, serial_port, serial_timeout, instance):
+    def __init__(self, bluetooth_address, timeout, instance):
         self.instance = instance
-        self.port = serial_port
-        self.timeout = serial_timeout
+        self.bluetooth_address = bluetooth_address
+        self.timeout = timeout
         self.reqparse = reqparse.RequestParser()
+        
+        global active_btsocket  # persistant socket
+        try:
+            if active_btsocket.getpeername()[0] != self.serial:  # serial device changed
+                self._init_socket()
+        except:
+            self._init_socket()
+        self.socket = active_btsocket
+
+    # (Re)establish connection to a serial bluetooth module
+    def _init_socket(self):
+        global active_btsocket
+        active_btsocket.close()
+        active_btsocket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+        active_btsocket.connect((self.bluetooth_address, 1))
+        active_btsocket.settimeout(self.timeout)
+
+    def serial_comm(self, key_code):
+        self.socket.send(f"{self.instance.name} 00 {self.instance.get_keycode(key_code)}\r".encode())
+        # Build a 10 byte response from return data, blocking on each byte
+        response = b''
+        while len(response) < 10:
+            data = self.socket.recv(1)
+            if not data:
+                break
+            response += data
+        success = True if response[5:7] == "OK" else False
+        payload = self.instance.get_desc(response[7:9])
+        print(success, payload)
+        return success, payload 
 
     def get(self):
         # Extract list of values from dictionary
@@ -391,18 +421,9 @@ class TvCom(Resource):
                 code_list.append("{}".format(i))
         return {"code": code_list}, 200
 
-    def serial_comm(self, serial, key_code):
-        serial.write(f"{self.instance.name} 00 {self.instance.get_keycode(key_code)}\r".encode())
-        response = serial.read(10).decode()
-        success = True if response[5:7] == "OK" else False
-        payload = self.instance.get_desc(response[7:9])
-        print(success, payload)
-        return success, payload 
-
 
     def put(self):
         try:
-            serial = Serial(self.port, timeout=self.timeout)
 
             self.reqparse.add_argument('code', required=True, help="variable required")
             args = self.reqparse.parse_args()
@@ -413,14 +434,14 @@ class TvCom(Resource):
                 return {'message': 'Invalid code'}, 400
 
             if self.instance.is_slider and re.match("^[\+-][0-9]{1,3}$", args['code']):
-                success, payload = self.serial_comm(serial, 'status')
+                success, payload = self.serial_comm('status')
 
                 if not success:
                     return {'message': "Unexpected response"}, 500
 
                 args['code'] = payload + int(args['code'])
 
-            success, payload = self.serial_comm(serial, args['code'])
+            success, payload = self.serial_comm(args['code'])
 
             if not success:
                 return {'message': "Unexpected response"}, 500
@@ -429,10 +450,8 @@ class TvCom(Resource):
                 return {'status': payload}, 200
             return {'message': 'Success'}, 200
 
-        except SerialException:
+        except:
             return {'message': "Unexpected response"}, 500
-        finally:
-            serial.close()
 
 class Snowdon(Resource):
 
