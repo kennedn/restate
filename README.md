@@ -1,4 +1,4 @@
-# roomAPI
+# restate
 Flask-restful API implementatation that unites a varied bunch of automations.
 
 Currently it allows control of the following:
