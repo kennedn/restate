@@ -28,6 +28,7 @@ class MerossDeviceType(Enum):
 
 app = Flask(__name__)
 api = Api(app)
+bind_port = 8080
 base_path = "/v1/"
 serial_port = '/dev/ttyUSB0'
 timeout = 5
@@ -107,7 +108,7 @@ class SendAlert(Resource):
 
 async def meross_multi_put(hosts, json, timeout):
     async with httpx.AsyncClient() as client:
-        tasks = (client.put(f'http://localhost{base_path}meross/{host}', headers={'Content-Type': 'application/json'}, timeout=timeout, json=json) for host in hosts)
+        tasks = (client.put(f'http://localhost:{bind_port}{base_path}meross/{host}', headers={'Content-Type': 'application/json'}, timeout=timeout, json=json) for host in hosts)
         return {req.url.path.split('/')[-1]: req.json() for req in await asyncio.gather(*tasks)}
             
 
@@ -532,4 +533,4 @@ api.add_resource(Root, base_path, endpoint='/',
 if __name__ == '__main__':
     from waitress import serve
     from paste.translogger import TransLogger
-    serve(TransLogger(app, setup_console_handler=False), host='0.0.0.0', port=8080, threads=10)#, threads=1)
+    serve(TransLogger(app, setup_console_handler=False), host='0.0.0.0', port=bind_port, threads=10)#, threads=1)
