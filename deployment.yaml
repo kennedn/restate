@@ -1,0 +1,19 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: restate
+spec:
+  replicas: 1
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+        - image: quay.io/kennedn/restate:latest
+          name: restate
+          ports:
+            - containerPort: 8080
+          env:
+            - name: "PYTHONUNBUFFERED"
+              value: "TRUE"
+          securityContext:
+            privileged: true

@@ -1,0 +1,17 @@
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+namespace: default
+
+commonLabels:
+    app: restate
+
+secretGenerator:
+- name: restate-basic-auth
+  behavior: create
+  options:
+    disableNameSuffixHash: true
+  files:
+    - auth=.htpasswd
