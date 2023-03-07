@@ -409,7 +409,6 @@ class TvCom(Resource):
             response += data.decode()
         success = True if response[5:7] == "OK" else False
         payload = self.instance.get_desc(response[7:9])
-        print(success, payload)
         return success, payload 
 
     def get(self):
@@ -425,7 +424,7 @@ class TvCom(Resource):
     def put(self):
         try:
 
-            self.reqparse.add_argument('code', required=True, location=['args', 'json'], help="variable required")
+            self.reqparse.add_argument('code', required=True, help="variable required")
             args = self.reqparse.parse_args()
             # If 'code' var was not in request OR (if 'code' var is not in our list of valid codes AND is not a slider)
             # OR (is a slider and value is not a 1 to 3 digit integer), return error
@@ -450,7 +449,7 @@ class TvCom(Resource):
                 return {'status': payload}, 200
             return {'message': 'Success'}, 200
 
-        except BluetoothError:
+        except bluetooth.BluetoothError:
             return {'message': "Unexpected response"}, 500
 
 class Snowdon(Resource):
