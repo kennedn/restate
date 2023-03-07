@@ -1,7 +1,7 @@
 resources:
-  - deployment.yaml
-  - service.yaml
-  - ingress.yaml
+  - deployment.yml
+  - service.yml
+  - ingress.yml
 
 namespace: default
 
@@ -14,4 +14,4 @@ secretGenerator:
   options:
     disableNameSuffixHash: true
   files:
-    - auth=.htpasswd
+    - auth=config/htpasswd

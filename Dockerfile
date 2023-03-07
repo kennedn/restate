@@ -7,11 +7,14 @@ RUN apt update && \
     mkdir -p /root/.config/ntfy
 
 WORKDIR /root
-COPY tvcom/serial_lookup.py tvcom/serial_lookup.py
-COPY simple-agent.py bluezutils.py restate.py magic.py requirements.txt entrypoint.sh .
+
+COPY requirements.txt .
 COPY config/ntfy.yml .config/ntfy/
 
 RUN python3 -m pip install -r requirements.txt
+
+COPY tvcom/serial_lookup.py tvcom/serial_lookup.py
+COPY restate.py magic.py headless-bluetooth-pair.py entrypoint.sh .
 
 CMD ./entrypoint.sh
 

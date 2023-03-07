@@ -16,12 +16,12 @@ bluetoothctl agent on
 
 # Wait for discovery of device
 echo -n "Waiting on device discovery..."
-bluetoothctl scan on &
+bluetoothctl scan on &> /dev/null &
 scan_pid="$!"
-while ! bluetoothctl devices | grep -q 00:14:03:05:0D:28; do sleep 0.1; done
+while ! bluetoothctl devices 2> /dev/null | grep -q 00:14:03:05:0D:28; do sleep 0.1; done
 kill "${scan_pid}"
 echo "Done"
 
-python3 simple-agent.py 00:14:03:05:0D:28
+python3 headless-bluetooth-pair.py
 
 python3 restate.py

@@ -3,6 +3,8 @@ apiVersion: apps/v1
 metadata:
   name: restate
 spec:
+  strategy:
+    type: Recreate
   replicas: 1
   template:
     spec:
@@ -15,5 +17,9 @@ spec:
           env:
             - name: "PYTHONUNBUFFERED"
               value: "TRUE"
+            - name: "BT_ADDRESS"
+              value: "00:14:03:05:0D:28"
+            - name: "BT_PIN"
+              value: "1234"
           securityContext:
             privileged: true

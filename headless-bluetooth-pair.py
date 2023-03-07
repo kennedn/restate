@@ -1,30 +1,66 @@
 #!/usr/bin/python
 
-from __future__ import absolute_import, print_function, unicode_literals
-
-from gi.repository import GObject
-
+from gi.repository import GLib
 import sys
 import dbus
 import dbus.service
 import dbus.mainloop.glib
+import os
 from optparse import OptionParser
-import bluezutils
 
 BUS_NAME = 'org.bluez'
 AGENT_INTERFACE = 'org.bluez.Agent1'
 AGENT_PATH = "/test/agent"
+SERVICE_NAME = "org.bluez"
+ADAPTER_INTERFACE = SERVICE_NAME + ".Adapter1"
+DEVICE_INTERFACE = SERVICE_NAME + ".Device1"
 
-bus = None
+def get_managed_objects():
+        bus = dbus.SystemBus()
+        manager = dbus.Interface(bus.get_object("org.bluez", "/"),
+                                "org.freedesktop.DBus.ObjectManager")
+        return manager.GetManagedObjects()
+
+def find_adapter(pattern=None):
+        return find_adapter_in_objects(get_managed_objects(), pattern)
+
+def find_adapter_in_objects(objects, pattern=None):
+        bus = dbus.SystemBus()
+        for path, ifaces in objects.items():
+                adapter = ifaces.get(ADAPTER_INTERFACE)
+                if adapter is None:
+                        continue
+                if not pattern or pattern == adapter["Address"] or \
+                                                        path.endswith(pattern):
+                        obj = bus.get_object(SERVICE_NAME, path)
+                        return dbus.Interface(obj, ADAPTER_INTERFACE)
+        raise Exception("Bluetooth adapter not found")
+
+def find_device(device_address, adapter_pattern=None):
+        return find_device_in_objects(get_managed_objects(), device_address,
+                                                                adapter_pattern)
+
+def find_device_in_objects(objects, device_address, adapter_pattern=None):
+        bus = dbus.SystemBus()
+        path_prefix = ""
+        if adapter_pattern:
+                adapter = find_adapter_in_objects(objects, adapter_pattern)
+                path_prefix = adapter.object_path
+        for path, ifaces in objects.items():
+                device = ifaces.get(DEVICE_INTERFACE)
+                if device is None:
+                        continue
+                if (device["Address"] == device_address and
+                                                path.startswith(path_prefix)):
+                        obj = bus.get_object(SERVICE_NAME, path)
+                        return dbus.Interface(obj, DEVICE_INTERFACE)
+
+        raise Exception("Bluetooth device not found")
+
+
 device_obj = None
-dev_path = None
-
-def ask(prompt):
-        try:
-                return raw_input(prompt)
-        except:
-                return input(prompt)
-
+device_path = None
+mainloop = None
 def set_trusted(path):
         props = dbus.Interface(bus.get_object("org.bluez", path),
                                         "org.freedesktop.DBus.Properties")
@@ -41,6 +77,10 @@ class Rejected(dbus.DBusException):
 class Agent(dbus.service.Object):
         exit_on_release = True
 
+        def __init__(self, bus, path, pin):
+            super().__init__(bus, path)
+            self.pin = pin
+
         def set_exit_on_release(self, exit_on_release):
                 self.exit_on_release = exit_on_release
 
@@ -54,26 +94,19 @@ class Agent(dbus.service.Object):
         @dbus.service.method(AGENT_INTERFACE,
                                         in_signature="os", out_signature="")
         def AuthorizeService(self, device, uuid):
-                print("AuthorizeService (%s, %s)" % (device, uuid))
-                authorize = ask("Authorize connection (yes/no): ")
-                if (authorize == "yes"):
-                        return
-                raise Rejected("Connection rejected by user")
+                return
 
         @dbus.service.method(AGENT_INTERFACE,
                                         in_signature="o", out_signature="s")
         def RequestPinCode(self, device):
-                print("RequestPinCode (%s)" % (device))
                 set_trusted(device)
-                return "1234"
+                return self.pin
 
         @dbus.service.method(AGENT_INTERFACE,
                                         in_signature="o", out_signature="u")
         def RequestPasskey(self, device):
-                print("RequestPasskey (%s)" % (device))
                 set_trusted(device)
-                passkey = ask("Enter passkey: ")
-                return dbus.UInt32(passkey)
+                return dbus.UInt32(self.pin)
 
         @dbus.service.method(AGENT_INTERFACE,
                                         in_signature="ouq", out_signature="")
@@ -112,7 +145,7 @@ class Agent(dbus.service.Object):
 
 def pair_reply():
         print("Device paired")
-        set_trusted(dev_path)
+        set_trusted(device_path)
         mainloop.quit()
 
 def pair_error(error):
@@ -122,8 +155,6 @@ def pair_error(error):
                 device_obj.CancelPairing()
         else:
                 print("Creating device failed: %s" % (error))
-
-
         mainloop.quit()
 
 if __name__ == '__main__':
@@ -138,6 +169,14 @@ if __name__ == '__main__':
                                         type="string",
                                         dest="adapter_pattern",
                                         default=None)
+        parser.add_option("-b", "--btaddr", action="store",
+                                        type="string",
+                                        dest="bluetooth_address",
+                                        default=os.environ.get('BT_ADDRESS') if os.environ.get('BT_ADDRESS') else None)
+        parser.add_option("-p", "--pin", action="store",
+                                        type="string",
+                                        dest="pin",
+                                        default=os.environ.get('BT_PIN') if os.environ.get('BT_PIN') else '1234')
         parser.add_option("-c", "--capability", action="store",
                                         type="string", dest="capability")
         parser.add_option("-t", "--timeout", action="store",
@@ -147,32 +186,27 @@ if __name__ == '__main__':
         if options.capability:
                 capability  = options.capability
 
-        path = "/test/agent"
-        agent = Agent(bus, path)
+        if not options.bluetooth_address:
+            print("No bluetooth address provided")
+            exit(parser.print_usage())
 
-        mainloop = GObject.MainLoop()
+
+        path = "/test/agent"
+        agent = Agent(bus, path, options.pin)
+
+        mainloop = GLib.MainLoop()
 
         obj = bus.get_object(BUS_NAME, "/org/bluez");
         manager = dbus.Interface(obj, "org.bluez.AgentManager1")
         manager.RegisterAgent(path, capability)
 
-        print("Agent registered")
-
-        # Fix-up old style invocation (BlueZ 4)
-        if len(args) > 0 and args[0].startswith("hci"):
-                options.adapter_pattern = args[0]
-                del args[:1]
-
-        if len(args) > 0:
-                device = bluezutils.find_device(args[0],
-                                                options.adapter_pattern)
-                dev_path = device.object_path
-                agent.set_exit_on_release(False)
-                device.Pair(reply_handler=pair_reply, error_handler=pair_error,
-                                                                timeout=60000)
-                device_obj = device
-        else:
-                manager.RequestDefaultAgent(path)
+        device = find_device(options.bluetooth_address,
+                                        options.adapter_pattern)
+        device_path = device.object_path
+        agent.set_exit_on_release(False)
+        device.Pair(reply_handler=pair_reply, error_handler=pair_error,
+                                                        timeout=60000)
+        device_obj = device
 
         mainloop.run()
 
