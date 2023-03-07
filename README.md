@@ -12,7 +12,7 @@ Currently drives the following automations:
 |`pc,shitcube`|Sends magic packets on to home computers to control the power state, [see here](https://github.com/kennedn/Action-On-LAN) for the companion project.|
 
 
-## Pre-requisits 
+## Pre-requisites 
 
 ### Kubernetes Cluster
 
