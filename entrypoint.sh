@@ -18,7 +18,7 @@ bluetoothctl agent on
 echo -n "Waiting on device discovery..."
 bluetoothctl scan on &> /dev/null &
 scan_pid="$!"
-while ! bluetoothctl devices 2> /dev/null | grep -q 00:14:03:05:0D:28; do sleep 0.1; done
+while ! bluetoothctl devices 2> /dev/null | grep -q "${BT_ADDRESS}"; do sleep 0.1; done
 kill "${scan_pid}"
 echo "Done"
 
