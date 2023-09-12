@@ -61,14 +61,6 @@ meross_devices = {
         "hostname": "192.168.1.146",
         "device_type": MerossDeviceType.BULB
     },
-    "kitchen": {
-        "hostname": "192.168.1.147",
-        "device_type": MerossDeviceType.BULB
-    },
-    "kitchen_2": {
-        "hostname": "192.168.1.143",
-        "device_type": MerossDeviceType.BULB
-    },
     "plant": {
         "hostname": "192.168.1.150",
         "device_type": MerossDeviceType.SOCKET
@@ -77,10 +69,6 @@ meross_devices = {
         "hostname": "192.168.1.151",
         "device_type": MerossDeviceType.SOCKET
     },
-    "test_socket": {
-        "hostname": "192.168.1.159",
-        "device_type": MerossDeviceType.SOCKET
-    }
 }
 magic_hosts = {
         "pc": "2c:f0:5d:56:40:43",
